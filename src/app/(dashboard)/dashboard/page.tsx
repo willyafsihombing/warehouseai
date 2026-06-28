@@ -1,71 +1,74 @@
-// import { cookies } from 'next/headers'
-// import { redirect } from 'next/navigation'
-
-// import { verifyToken } from '@/src/lib/auth/jwt'
-// import { PageContainer } from '@/src/components/layout/PageContainer'
-// import { PageHeader } from '@/src/components/layout/PageHeader'
-// import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-
-// export default async function DashboardPage() {
-//   const cookieStore = await cookies()
-//   const token = cookieStore.get('auth-token')?.value
-
-//   if (!token) {
-//     redirect('/login')
-//   }
-
-//   let user
-//   try {
-//     user = await verifyToken(token)
-//   } catch {
-//     redirect('/login')
-//   }
-
-//   return (
-//     <PageContainer>
-//       <PageHeader
-//         title="Dashboard"
-//         description="Halaman utama Warehouse AI"
-//       />
-
-//       <div className="space-y-1">
-//         <h2 className="text-2xl font-bold text-blue-600">
-//           Selamat datang, {user.email}!
-//         </h2>
-//         <p className="text-muted-foreground">
-//           Dashboard sedang dalam pembangunan.
-//         </p>
-//       </div>
-
-//       <Card>
-//         <CardHeader>
-//           <CardTitle className="text-base">Informasi Akun</CardTitle>
-//         </CardHeader>
-//         <CardContent className="space-y-2 text-sm">
-//           <div className="flex gap-2">
-//             <span className="font-medium text-foreground">Email:</span>
-//             <span className="text-muted-foreground">{user.email}</span>
-//           </div>
-//           <div className="flex gap-2">
-//             <span className="font-medium text-foreground">User ID:</span>
-//             <span className="text-muted-foreground">{user.sub}</span>
-//           </div>
-//         </CardContent>
-//       </Card>
-//     </PageContainer>
-//   )
-// }
-
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { AlertTriangle, BarChart3, Package, Sparkles, Warehouse } from 'lucide-react'
 
+import { verifyToken } from '@/src/lib/auth/jwt'
+import { supabaseAdmin } from '@/src/lib/supabase/admin'
+import { formatNumber } from '@/src/lib/utils'
 import { PageContainer } from '@/src/components/layout/PageContainer'
 import { PageHeader } from '@/src/components/layout/PageHeader'
 import { StatCard } from '@/src/components/dashboard/StatCard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
-export default function DashboardPage() {
+interface StockWithMinQuantity {
+  quantity: number
+  products: {
+    min_quantity: number
+  } | null
+}
+
+export default async function DashboardPage() {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('auth-token')?.value
+
+  if (!token) {
+    redirect('/login')
+  }
+
+  let user
+  try {
+    user = await verifyToken(token)
+  } catch {
+    redirect('/login')
+  }
+
+  // Total Produk aktif
+  const { count: totalProducts } = await supabaseAdmin
+    .from('products')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.sub)
+    .eq('is_active', true)
+
+  // Total Gudang
+  const { count: totalWarehouses } = await supabaseAdmin
+    .from('warehouses')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.sub)
+
+  // Semua baris stock + min_quantity produk terkait (cuma produk aktif
+  // milik user ini). "products!inner" supaya filter user_id di tabel
+  // products ikut membatasi hasil join, bukan cuma di tabel stock.
+  const { data: stockRows, error: stockError } = await supabaseAdmin
+    .from('stock')
+    .select('quantity, products!inner(min_quantity)')
+    .eq('products.user_id', user.sub)
+    .eq('products.is_active', true)
+    .returns<StockWithMinQuantity[]>()
+
+  if (stockError) {
+    console.error('Fetch stock for dashboard error:', stockError)
+  }
+
+  const rows = stockRows ?? []
+
+  const lowStockCount = rows.filter(
+    (row) => row.products && row.quantity < row.products.min_quantity
+  ).length
+
+  const totalStockUnits = rows.reduce((sum, row) => sum + row.quantity, 0)
+
   return (
     <PageContainer>
       <PageHeader
@@ -76,25 +79,25 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           title="Total Produk"
-          value="0"
+          value={formatNumber(totalProducts)}
           description="produk terdaftar"
           icon={<Package className="h-4 w-4" />}
         />
         <StatCard
           title="Total Gudang"
-          value="0"
+          value={formatNumber(totalWarehouses)}
           description="gudang aktif"
           icon={<Warehouse className="h-4 w-4" />}
         />
         <StatCard
           title="Item Stok Rendah"
-          value="0"
+          value={formatNumber(lowStockCount)}
           description="perlu perhatian"
           icon={<AlertTriangle className="h-4 w-4" />}
         />
         <StatCard
           title="Total Stok"
-          value="0"
+          value={formatNumber(totalStockUnits)}
           description="unit di semua gudang"
           icon={<BarChart3 className="h-4 w-4" />}
         />
