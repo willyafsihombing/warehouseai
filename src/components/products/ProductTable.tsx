@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/table'
 import { TableSkeleton } from '@/src/components/layout/TableSkeleton'
 import type { Product } from '@/src/types'
+import { toast } from 'sonner'
 
 interface ProductsTableProps {
   initialProducts: Product[]
@@ -54,7 +55,9 @@ export function ProductsTable({ initialProducts }: ProductsTableProps) {
 
     const result = await deleteProduct(product.id)
     if (!result.success) {
-      window.alert(result.error ?? 'Gagal menghapus produk')
+      toast.error(result.error ?? 'Gagal menghapus produk')
+    } else {
+      toast.success(`Produk ${product.name} berhasil dihapus`)
     }
   }
 
